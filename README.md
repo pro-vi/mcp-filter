@@ -288,7 +288,7 @@ Environment variables (prefixed with `MF_`) override CLI flags. See `.env.exampl
 ### Requirements
 
 - Python 3.10+ (3.11 recommended)
-- `mcp>=1.0.0` and `fastmcp>=0.3.0` (installed automatically)
+- `mcp>=1.0.0` and `fastmcp>=2.14.5` (installed automatically)
 - Upstream tool list is fixed per session; mid-run changes require restart
 - HTTP transport requires SSE-compatible upstream servers
 

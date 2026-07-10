@@ -8,6 +8,9 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        fastmcp-version: ["2.14.5", "latest"]
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
@@ -16,5 +19,8 @@ jobs:
           python-version: "3.11"
       - name: Install project
         run: uv sync --extra dev
+      - name: Install minimum FastMCP
+        if: matrix.fastmcp-version != 'latest'
+        run: uv pip install "fastmcp==${{ matrix.fastmcp-version }}"
       - name: Run unit and subprocess E2E tests
         run: uv run pytest -q

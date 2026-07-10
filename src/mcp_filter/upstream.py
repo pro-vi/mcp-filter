@@ -120,7 +120,7 @@ async def _connect_stdio(
 ) -> Any:
     args = args or []
 
-    # Try modern FastMCP (>= 2.0) with Client + StdioTransport
+    # Try supported FastMCP (>= 2.14.5) with Client + StdioTransport
     try:
         from fastmcp import Client
         from fastmcp.client import StdioTransport
@@ -142,7 +142,7 @@ async def _connect_stdio(
 
     # Legacy FastMCP cannot reliably provide the selective environment contract.
     if env:
-        raise ConfigError("stdio environment variables require fastmcp 2.0 or newer.")
+        raise ConfigError("stdio environment variables require fastmcp 2.14.5 or newer.")
 
     # Fallback: try legacy patterns
     if hasattr(fastmcp, "connect_stdio"):
