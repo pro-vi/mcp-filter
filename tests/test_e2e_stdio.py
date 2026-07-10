@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -86,19 +87,24 @@ async def test_cli_environment_is_forwarded_selectively_to_real_upstream() -> No
         (str(FIXTURE_SCRIPT), "--sentinel", "python"),
         configured_env={
             "EXPLICIT_SECRET": "value=with=equals",
-            "SECOND_EXPLICIT": "second-value",
+            "SECOND_EXPLICIT": "second;value",
         },
-        filter_env={"UNRELATED_SECRET": "must-not-reach-upstream"},
+        filter_env={
+            "MF_STDIO_ENV": "AMBIENT_SECRET=must-be-replaced",
+            "UNRELATED_SECRET": "must-not-reach-upstream",
+        },
     ) as session:
         explicit = await _runtime_snapshot(session, "EXPLICIT_SECRET")
         second = await _runtime_snapshot(session, "SECOND_EXPLICIT")
+        ambient = await _runtime_snapshot(session, "AMBIENT_SECRET")
         unrelated = await _runtime_snapshot(session, "UNRELATED_SECRET")
 
     assert explicit == {
         "environment_value": "value=with=equals",
         "arguments": ["--sentinel", "python"],
     }
-    assert second["environment_value"] == "second-value"
+    assert second["environment_value"] == "second;value"
+    assert ambient["environment_value"] is None
     assert unrelated["environment_value"] is None
 
 
@@ -107,16 +113,21 @@ async def test_environment_configuration_reaches_real_upstream() -> None:
     async with _filter_session(
         sys.executable,
         (str(FIXTURE_SCRIPT),),
-        filter_env={"MF_STDIO_ENV": "CONFIG_SECRET=from=config;SECOND_CONFIG=second"},
+        filter_env={"MF_STDIO_ENV": r"CONFIG_SECRET=from\;config;SECOND_CONFIG=second"},
     ) as session:
         snapshot = await _runtime_snapshot(session, "CONFIG_SECRET")
         second = await _runtime_snapshot(session, "SECOND_CONFIG")
 
-    assert snapshot["environment_value"] == "from=config"
+    assert snapshot["environment_value"] == "from;config"
     assert second["environment_value"] == "second"
 
 
 @pytest.mark.asyncio
+@pytest.mark.network
+@pytest.mark.skipif(
+    shutil.which("uv") is None or shutil.which("uvx") is None,
+    reason="real uv and uvx executables are required",
+)
 @pytest.mark.parametrize(
     ("runner", "upstream_args"),
     [
@@ -131,17 +142,10 @@ async def test_python_package_runners_serve_tools_end_to_end(
     runner: str,
     upstream_args: Sequence[str],
 ) -> None:
-    configured_env = {
-        "PATH": os.environ["PATH"],
-        "E2E_RUNNER": runner,
-    }
-    if "HOME" in os.environ:
-        configured_env["HOME"] = os.environ["HOME"]
-
     async with _filter_session(
         runner,
         upstream_args,
-        configured_env=configured_env,
+        configured_env={"E2E_RUNNER": runner},
     ) as session:
         snapshot = await _runtime_snapshot(session, "E2E_RUNNER")
 
@@ -151,7 +155,54 @@ async def test_python_package_runners_serve_tools_end_to_end(
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command_shape", ["python", "script"])
+async def test_python_command_shapes_and_arguments_with_spaces(
+    command_shape: str,
+    tmp_path: Path,
+) -> None:
+    script_dir = tmp_path / "Project With Spaces"
+    script_dir.mkdir()
+    script = script_dir / "fixture server.py"
+    shutil.copyfile(FIXTURE_SCRIPT, script)
+    sentinel = f"{command_shape} value with spaces"
+
+    if command_shape == "python":
+        command = "python"
+        args = (str(script), "--sentinel", sentinel)
+    else:
+        command = str(script)
+        args = ("--sentinel", sentinel)
+
+    async with _filter_session(command, args) as session:
+        snapshot = await _runtime_snapshot(session, "UNSET")
+
+    assert snapshot["arguments"] == ["--sentinel", sentinel]
+
+
+def test_missing_upstream_command_reports_stderr_without_protocol_output() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mcp_filter",
+            "run",
+            "--stdio-command",
+            "definitely-not-an-installed-mcp-runner",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "was not found or is not executable" in result.stderr
+
+
 def test_invalid_cli_environment_fails_before_starting_upstream() -> None:
+    secret = "sk-secret-that-must-not-be-logged"
     result = subprocess.run(
         [
             sys.executable,
@@ -161,7 +212,7 @@ def test_invalid_cli_environment_fails_before_starting_upstream() -> None:
             "--stdio-command",
             sys.executable,
             "--stdio-env",
-            "INVALID",
+            secret,
         ],
         capture_output=True,
         text=True,
@@ -170,5 +221,27 @@ def test_invalid_cli_environment_fails_before_starting_upstream() -> None:
     )
 
     assert result.returncode == 1
-    assert "Configuration error" in result.stdout
-    assert "must be in KEY=VALUE format" in result.stdout
+    assert result.stdout == ""
+    assert "Configuration error" in result.stderr
+    assert "Environment entry 1 must be in KEY=VALUE format" in result.stderr
+    assert secret not in result.stderr
+
+
+def test_invalid_environment_configuration_redacts_raw_value() -> None:
+    secret = "token-that-must-not-be-logged"
+    environment = os.environ.copy()
+    environment["MF_STDIO_COMMAND"] = sys.executable
+    environment["MF_STDIO_ENV"] = secret
+    result = subprocess.run(
+        [sys.executable, "-m", "mcp_filter", "run"],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "Environment entry 1 must be in KEY=VALUE form" in result.stderr
+    assert secret not in result.stderr

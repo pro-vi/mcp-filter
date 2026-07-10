@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import platform
-import shlex
 from typing import Dict, List, Optional
 
 import typer
@@ -21,6 +20,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+error_console = Console(stderr=True)
 
 
 def _version_callback(value: bool) -> None:
@@ -58,7 +58,10 @@ def run(
     stdio_args: Optional[List[str]] = typer.Option(
         None,
         "--stdio-arg",
-        help="Additional argument(s) for the stdio command (repeatable). Can be individual args or a quoted string that will be split.",
+        help=(
+            "One literal argument for the stdio command (repeatable). "
+            "Use --stdio-arg=value when the value begins with '-'."
+        ),
     ),
     stdio_env: Optional[List[str]] = typer.Option(
         None,
@@ -130,7 +133,7 @@ def run(
         )
         config = load_config(overrides=overrides)
     except ConfigError as exc:
-        console.print(f"[red]Configuration error:[/red] {exc}")
+        error_console.print(f"[red]Configuration error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
     _maybe_install_uvloop()
@@ -142,10 +145,10 @@ def run(
     try:
         asyncio.run(_run())
     except ConfigError as exc:
-        console.print(f"[red]Configuration error:[/red] {exc}")
+        error_console.print(f"[red]Configuration error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     except KeyboardInterrupt:
-        console.print("\n[yellow]Shutting down...[/yellow]")
+        error_console.print("\n[yellow]Shutting down...[/yellow]")
 
 
 def _parse_headers(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
@@ -164,9 +167,9 @@ def _parse_stdio_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
     if not values:
         return None
     env: Dict[str, str] = {}
-    for item in values:
+    for index, item in enumerate(values, start=1):
         if "=" not in item:
-            raise ConfigError(f"Environment variable '{item}' must be in KEY=VALUE format.")
+            raise ConfigError(f"Environment entry {index} must be in KEY=VALUE format.")
         key, value = item.split("=", 1)
         key = key.strip()
         if not key:
@@ -176,18 +179,10 @@ def _parse_stdio_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
 
 
 def _parse_stdio_args(values: Optional[List[str]]) -> Optional[List[str]]:
-    """Parse stdio args, splitting quoted strings if needed."""
+    """Preserve each repeatable option value as one upstream argument."""
     if not values:
         return None
-    result: List[str] = []
-    for item in values:
-        # If the item contains spaces, split it using shlex
-        # Otherwise, treat it as a single argument
-        if " " in item or "\t" in item:
-            result.extend(shlex.split(item))
-        else:
-            result.append(item)
-    return result
+    return list(values)
 
 
 def _maybe_install_uvloop() -> None:
