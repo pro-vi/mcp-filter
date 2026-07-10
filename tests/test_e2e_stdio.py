@@ -19,6 +19,22 @@ FIXTURE_PROJECT = Path(__file__).parent / "fixtures" / "stdio_upstream"
 FIXTURE_SCRIPT = FIXTURE_PROJECT / "src" / "fixture_stdio_upstream" / "__init__.py"
 
 
+def _run_cli(
+    *args: str,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment.update(env or {})
+    return subprocess.run(
+        [sys.executable, "-m", "mcp_filter", *args],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=10,
+        check=False,
+    )
+
+
 @asynccontextmanager
 async def _filter_session(
     upstream_command: str,
@@ -181,19 +197,10 @@ async def test_python_command_shapes_and_arguments_with_spaces(
 
 
 def test_missing_upstream_command_reports_stderr_without_protocol_output() -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "mcp_filter",
-            "run",
-            "--stdio-command",
-            "definitely-not-an-installed-mcp-runner",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
+    result = _run_cli(
+        "run",
+        "--stdio-command",
+        "definitely-not-an-installed-mcp-runner",
     )
 
     assert result.returncode == 1
@@ -203,21 +210,12 @@ def test_missing_upstream_command_reports_stderr_without_protocol_output() -> No
 
 def test_invalid_cli_environment_fails_before_starting_upstream() -> None:
     secret = "sk-secret-that-must-not-be-logged"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "mcp_filter",
-            "run",
-            "--stdio-command",
-            sys.executable,
-            "--stdio-env",
-            secret,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
+    result = _run_cli(
+        "run",
+        "--stdio-command",
+        sys.executable,
+        "--stdio-env",
+        secret,
     )
 
     assert result.returncode == 1
@@ -229,19 +227,15 @@ def test_invalid_cli_environment_fails_before_starting_upstream() -> None:
 
 def test_invalid_environment_configuration_redacts_raw_value() -> None:
     secret = "token-that-must-not-be-logged"
-    environment = os.environ.copy()
-    environment["MF_STDIO_COMMAND"] = sys.executable
-    environment["MF_STDIO_ENV"] = secret
-    result = subprocess.run(
-        [sys.executable, "-m", "mcp_filter", "run"],
-        capture_output=True,
-        text=True,
-        env=environment,
-        timeout=10,
-        check=False,
+    result = _run_cli(
+        "run",
+        env={
+            "MF_STDIO_COMMAND": sys.executable,
+            "MF_STDIO_ENV": secret,
+        },
     )
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "Environment entry 1 must be in KEY=VALUE form" in result.stderr
+    assert "Environment entry 1 must be in KEY=VALUE format" in result.stderr
     assert secret not in result.stderr

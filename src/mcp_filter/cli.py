@@ -10,7 +10,7 @@ import typer
 from rich.console import Console
 from typing_extensions import Annotated
 
-from .config import ConfigError, ConfigOverrides, load_config
+from .config import ConfigError, ConfigOverrides, load_config, parse_stdio_env_entries
 from .filter_server import build_server
 from .version import __version__
 
@@ -166,16 +166,7 @@ def _parse_headers(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
 def _parse_stdio_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
     if not values:
         return None
-    env: Dict[str, str] = {}
-    for index, item in enumerate(values, start=1):
-        if "=" not in item:
-            raise ConfigError(f"Environment entry {index} must be in KEY=VALUE format.")
-        key, value = item.split("=", 1)
-        key = key.strip()
-        if not key:
-            raise ConfigError("Environment variable name cannot be empty.")
-        env[key] = value
-    return env
+    return parse_stdio_env_entries(values)
 
 
 def _parse_stdio_args(values: Optional[List[str]]) -> Optional[List[str]]:

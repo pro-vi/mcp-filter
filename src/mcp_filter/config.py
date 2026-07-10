@@ -241,12 +241,16 @@ def _parse_headers(value: str) -> Dict[str, str]:
 
 
 def _parse_stdio_env(value: str) -> Dict[str, str]:
+    return parse_stdio_env_entries(_split_escaped_semicolons(value))
+
+
+def parse_stdio_env_entries(entries: Iterable[str]) -> Dict[str, str]:
     env: Dict[str, str] = {}
-    for index, item in enumerate(_split_escaped_semicolons(value), start=1):
+    for index, item in enumerate(entries, start=1):
         if not item.strip():
             continue
         if "=" not in item:
-            raise ConfigError(f"Environment entry {index} must be in KEY=VALUE form.")
+            raise ConfigError(f"Environment entry {index} must be in KEY=VALUE format.")
         key, val = item.split("=", 1)
         key = key.strip()
         if not key:
