@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
 
 from pydantic import BaseModel
@@ -10,6 +13,9 @@ from pydantic import BaseModel
 from .config import ConfigError, UpstreamConfig
 
 logger = logging.getLogger(__name__)
+
+UPSTREAM_INIT_TIMEOUT_SECONDS = 30
+UPSTREAM_REQUEST_TIMEOUT_SECONDS = 120
 
 
 class ToolSchema(BaseModel):
@@ -96,7 +102,7 @@ async def make_upstream(cfg: UpstreamConfig) -> Upstream:
     if cfg.transport == "stdio":
         if not cfg.stdio_command:
             raise ConfigError("stdio transport requires a command to spawn.")
-        client = await _connect_stdio(fastmcp, cfg.stdio_command, cfg.stdio_args, cfg.stdio_env)
+        client = await _connect_stdio(cfg.stdio_command, cfg.stdio_args, cfg.stdio_env)
     elif cfg.transport == "http":
         if not cfg.http_url:
             raise ConfigError("http transport requires an http_url.")
@@ -107,61 +113,61 @@ async def make_upstream(cfg: UpstreamConfig) -> Upstream:
     return _FastMCPUpstream(client)
 
 
-async def _connect_stdio(fastmcp: Any, command: str, args: Optional[List[str]], env: Optional[Dict[str, str]] = None) -> Any:
+async def _connect_stdio(
+    command: str,
+    args: Optional[List[str]],
+    env: Optional[Dict[str, str]] = None,
+) -> Any:
     args = args or []
+    launch_command, launch_args = _normalize_python_command(command, args)
 
-    # Try modern FastMCP (>= 2.0) with Client + StdioTransport
+    if shutil.which(launch_command) is None:
+        raise ConfigError(f"Upstream command '{command}' was not found or is not executable.")
+
     try:
         from fastmcp import Client
-        from fastmcp.client import NpxStdioTransport, PythonStdioTransport
+        from fastmcp.client import StdioTransport
+    except (ImportError, AttributeError) as exc:
+        raise ConfigError(
+            "Installed fastmcp does not expose the required stdio client API."
+        ) from exc
 
-        # Detect transport type based on command
-        if command == "npx":
-            # npx @package args -> NpxStdioTransport(package, args)
-            if not args:
-                raise ConfigError("npx transport requires a package name")
-            package = args[0]
-            package_args = args[1:] if len(args) > 1 else []
-            transport = NpxStdioTransport(package=package, args=package_args, env_vars=env)
-        elif command.endswith(".py") or command == "python":
-            # python script.py args -> PythonStdioTransport(script, args)
-            if command == "python" and args:
-                script = args[0]
-                script_args = args[1:] if len(args) > 1 else []
-            else:
-                script = command
-                script_args = args
-            transport = PythonStdioTransport(script_path=script, args=script_args, env=env)
-        else:
-            # Generic command -> try importing generic StdioTransport or NodeStdioTransport
-            from fastmcp.client import StdioTransport
-            # StdioTransport might not accept command directly, let's check NodeStdioTransport
-            try:
-                from fastmcp.client import NodeStdioTransport
-                transport = NodeStdioTransport(command=command, args=args, env=env)
-            except (ImportError, TypeError):
-                # Fallback to generic if available
-                transport = StdioTransport(command=command, args=args, env=env)
+    transport = StdioTransport(command=launch_command, args=launch_args, env=env or None)
+    client = Client(
+        transport,
+        timeout=UPSTREAM_REQUEST_TIMEOUT_SECONDS,
+        init_timeout=UPSTREAM_INIT_TIMEOUT_SECONDS,
+    )
 
-        client = Client(transport)
-
-        # Client requires async context manager, enter it now
+    try:
         if hasattr(client, "__aenter__"):
             await client.__aenter__()
+    except TimeoutError as exc:
+        raise ConfigError(f"Timed out initializing upstream command '{command}'.") from exc
+    except OSError as exc:
+        raise ConfigError(f"Failed to launch upstream command '{command}'.") from exc
+    except Exception as exc:
+        raise ConfigError(f"Failed to initialize upstream command '{command}'.") from exc
 
-        return client
-    except (ImportError, AttributeError) as e:
-        logger.debug(f"Modern FastMCP transport failed: {e}")
+    return client
 
-    # Fallback: try legacy patterns
-    if hasattr(fastmcp, "connect_stdio"):
-        return await fastmcp.connect_stdio(command, *args)
-    if hasattr(fastmcp, "client"):
-        client_mod = fastmcp.client
-        if hasattr(client_mod, "connect_stdio"):
-            return await client_mod.connect_stdio(command, args=args)
 
-    raise ConfigError("Installed fastmcp version does not expose a stdio client.")
+def _normalize_python_command(command: str, args: List[str]) -> tuple[str, List[str]]:
+    if command == "python":
+        if not args:
+            raise ConfigError("The 'python' upstream command requires a script path.")
+        script = Path(args[0]).expanduser().resolve()
+        if not script.is_file():
+            raise ConfigError(f"Upstream Python script '{args[0]}' was not found.")
+        return sys.executable, [str(script), *args[1:]]
+
+    if command.endswith(".py"):
+        script = Path(command).expanduser().resolve()
+        if not script.is_file():
+            raise ConfigError(f"Upstream Python script '{command}' was not found.")
+        return sys.executable, [str(script), *args]
+
+    return command, args
 
 
 async def _connect_http(fastmcp: Any, url: str, headers: Optional[Dict[str, str]]) -> Any:

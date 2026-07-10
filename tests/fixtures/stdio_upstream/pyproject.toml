@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-filter-e2e-upstream"
+version = "0.0.0"
+requires-python = ">=3.10"
+
+[project.scripts]
+fixture-stdio-upstream = "fixture_stdio_upstream:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

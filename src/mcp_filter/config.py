@@ -5,8 +5,7 @@ from __future__ import annotations
 import os
 import shlex
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional
-from typing import Literal
+from typing import Any, Dict, Iterable, List, Literal, Mapping, MutableMapping, Optional
 
 from pydantic import AnyUrl, BaseModel, Field, ValidationError, field_validator
 
@@ -142,6 +141,9 @@ def load_config(
     merged = _deep_update(base, env_data)
     if overrides is not None:
         merged = _deep_update(merged, overrides.as_dict())
+        if overrides.stdio_env is not None:
+            upstream = merged.setdefault("upstream", {})
+            upstream["stdio_env"] = dict(overrides.stdio_env)
 
     try:
         config = ServerConfig(**merged)
@@ -183,9 +185,9 @@ def _load_from_env(env: Mapping[str, str]) -> Dict[str, Any]:
     stdio_args = env.get("MF_STDIO_ARGS")
     if stdio_args:
         upstream["stdio_args"] = shlex.split(stdio_args)
-    stdio_env_raw = env.get("MF_STDIO_ENV")
-    if stdio_env_raw:
-        upstream["stdio_env"] = _parse_env_vars(stdio_env_raw)
+    stdio_env = env.get("MF_STDIO_ENV")
+    if stdio_env:
+        upstream["stdio_env"] = _parse_stdio_env(stdio_env)
 
     http_url = env.get("MF_HTTP_URL")
     if http_url:
@@ -238,19 +240,43 @@ def _parse_headers(value: str) -> Dict[str, str]:
     return headers
 
 
-def _parse_env_vars(value: str) -> Dict[str, str]:
-    """Parse environment variables from semicolon-separated key=value pairs."""
-    env_vars: Dict[str, str] = {}
-    for item in value.split(";"):
+def _parse_stdio_env(value: str) -> Dict[str, str]:
+    return parse_stdio_env_entries(_split_escaped_semicolons(value))
+
+
+def parse_stdio_env_entries(entries: Iterable[str]) -> Dict[str, str]:
+    env: Dict[str, str] = {}
+    for index, item in enumerate(entries, start=1):
         if not item.strip():
             continue
         if "=" not in item:
-            raise ConfigError(
-                f"Environment variable '{item}' must be in key=value form (separated by ';')."
-            )
+            raise ConfigError(f"Environment entry {index} must be in KEY=VALUE format.")
         key, val = item.split("=", 1)
-        env_vars[key.strip()] = val.strip()
-    return env_vars
+        key = key.strip()
+        if not key:
+            raise ConfigError("Environment variable name cannot be empty.")
+        env[key] = val
+    return env
+
+
+def _split_escaped_semicolons(value: str) -> List[str]:
+    entries: List[str] = []
+    current: List[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char == "\\" and index + 1 < len(value) and value[index + 1] == ";":
+            current.append(";")
+            index += 2
+            continue
+        if char == ";":
+            entries.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+        index += 1
+    entries.append("".join(current))
+    return entries
 
 
 def _to_bool(value: str) -> bool:

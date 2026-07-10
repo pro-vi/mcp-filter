@@ -74,13 +74,16 @@ pip install -e '.[dev]'
 mcp-filter run \
   -t stdio \
   --stdio-command npx \
-  --stdio-arg "-y @supabase/mcp-server-supabase@latest --access-token YOUR_TOKEN" \
+  --stdio-arg=-y \
+  --stdio-arg @supabase/mcp-server-supabase@latest \
+  --stdio-arg=--access-token \
+  --stdio-arg YOUR_TOKEN \
   -a "execute_sql,list_tables,get_project"
 ```
 
 **Shorthand flags:** `-t` (transport), `-a` (allow-tool), `-d` (deny-pattern), `-p` (prefix)
 
-**Note:** Both `--stdio-arg` and `-a` support flexible input - use repeatable flags or comma-separated strings, whichever is cleaner for your use case.
+**Note:** Each repeatable `--stdio-arg` value is forwarded as one literal argument. Use `--stdio-arg=value` when the value begins with `-`. Tool allowlists passed with `-a` may be comma-separated.
 
 ## How to Wrap Your MCP
 
@@ -158,8 +161,10 @@ This exposes all 29 tools (**~20.8k tokens**):
         "stdio",
         "--stdio-command",
         "npx",
-        "--stdio-arg",
-        "-y @supabase/mcp-server-supabase@latest --access-token YOUR_TOKEN",
+        "--stdio-arg=-y",
+        "--stdio-arg", "@supabase/mcp-server-supabase@latest",
+        "--stdio-arg=--access-token",
+        "--stdio-arg", "YOUR_TOKEN",
         "-a",
         "execute_sql,list_tables,get_project"
       ]
@@ -189,7 +194,10 @@ This only exposes 3 tools we allowed (**~1.9k tokens** = 91% reduction!):
     "run",
     "-t", "stdio",
     "--stdio-command", "npx",
-    "--stdio-arg", "-y @supabase/mcp-server-supabase@latest --access-token YOUR_TOKEN",
+    "--stdio-arg=-y",
+    "--stdio-arg", "@supabase/mcp-server-supabase@latest",
+    "--stdio-arg=--access-token",
+    "--stdio-arg", "YOUR_TOKEN",
     "-a", "execute_sql,list_tables,get_project"
   ]
 }
@@ -205,7 +213,10 @@ This only exposes 3 tools we allowed (**~1.9k tokens** = 91% reduction!):
     "run",
     "-t", "stdio",
     "--stdio-command", "npx",
-    "--stdio-arg", "-y @supabase/mcp-server-supabase@latest --access-token YOUR_TOKEN",
+    "--stdio-arg=-y",
+    "--stdio-arg", "@supabase/mcp-server-supabase@latest",
+    "--stdio-arg=--access-token",
+    "--stdio-arg", "YOUR_TOKEN",
     "-a", "execute_sql,list_tables,get_project"
   ]
 }
@@ -220,8 +231,28 @@ This only exposes 3 tools we allowed (**~1.9k tokens** = 91% reduction!):
     "run",
     "-t", "stdio",
     "--stdio-command", "npx",
-    "--stdio-arg", "-y mcp-remote https://mcp.linear.app/sse",
+    "--stdio-arg=-y",
+    "--stdio-arg", "mcp-remote",
+    "--stdio-arg", "https://mcp.linear.app/sse",
     "-a", "get_issue,list_issues,create_issue,update_issue,create_comment"
+  ]
+}
+```
+
+**Python MCP servers (uvx)** - wrap a Python package without installing it globally:
+
+```json
+"atlassian": {
+  "command": "mcp-filter",
+  "env": {
+    "MF_STDIO_ENV": "JIRA_URL=https://your-instance.atlassian.net;JIRA_API_TOKEN=YOUR_API_TOKEN"
+  },
+  "args": [
+    "run",
+    "-t", "stdio",
+    "--stdio-command", "uvx",
+    "--stdio-arg", "mcp-atlassian",
+    "-a", "jira_search,jira_get_issue"
   ]
 }
 ```
@@ -230,11 +261,11 @@ Adjust auth-tokens/headers to match your environment; the filter never logs or e
 
 ## Configuration Reference
 
-Environment variables (prefixed with `MF_`) override CLI flags. See `.env.example` for a template.
+CLI flags override environment variables prefixed with `MF_`. See `.env.example` for a template.
 
 - `MF_TRANSPORT` / `-t`: `stdio` (default) or `http`
 - `MF_STDIO_COMMAND` / `MF_STDIO_ARGS`: upstream binary + args
-- `MF_STDIO_ENV` / `--stdio-env`: environment variables for stdio subprocess (`KEY=value;ANOTHER=value` or repeatable `--stdio-env KEY=value`)
+- `MF_STDIO_ENV` / `--stdio-env`: explicit upstream environment (`MF_STDIO_ENV` uses semicolon-separated pairs; escape a value semicolon as `\;`). CLI entries replace, rather than merge with, `MF_STDIO_ENV`.
 - `MF_HTTP_URL` / `MF_HTTP_HEADERS`: SSE/HTTP endpoint and extra headers (`key=value;Another=Value`)
 - `MF_ALLOW_TOOLS` / `-a`: exact tool names (repeatable, or comma-separated)
 - `MF_ALLOW_PATTERNS`: regex patterns for tool names (repeatable, or comma-separated)
@@ -266,12 +297,15 @@ Environment variables (prefixed with `MF_`) override CLI flags. See `.env.exampl
 - Deny-patterns apply last to ensure sensitive tools stay hidden.
 - Optional rename prefix avoids tool collisions when multiple filtered proxies run side-by-side.
 - Health payload (when enabled) avoids secrets—only structural metadata is emitted.
-- **Credentials & secrets**: Arguments and headers passed via CLI flags are never logged. For production deployments, prefer environment variables (e.g., `MF_STDIO_ARGS`) to avoid exposing credentials in process lists.
+- **Credentials & secrets**: Parsed credential values are never logged. Values supplied with `--stdio-env` may be visible in process listings, so prefer `MF_STDIO_ENV` for secrets.
+- Upstream subprocesses receive configured variables plus the MCP SDK's minimal process defaults (such as `PATH` and `HOME`), never the filter's full environment.
+- `python` and `.py` upstream commands continue to run with mcp-filter's current Python interpreter. Other commands are forwarded literally.
+- `npx` arguments are forwarded literally; mcp-filter does not inject `--prefer-offline`, so add that argument explicitly when required.
 
 ### Requirements
 
 - Python 3.10+ (3.11 recommended)
-- `mcp>=1.0.0` and `fastmcp>=0.3.0` (installed automatically)
+- `mcp>=1.0.0` and `fastmcp>=2.14.5` (installed automatically)
 - Upstream tool list is fixed per session; mid-run changes require restart
 - HTTP transport requires SSE-compatible upstream servers
 

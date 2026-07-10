@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import platform
-import shlex
 from typing import Dict, List, Optional
 
 import typer
 from rich.console import Console
 from typing_extensions import Annotated
 
-from .config import ConfigError, ConfigOverrides, load_config
+from .config import ConfigError, ConfigOverrides, load_config, parse_stdio_env_entries
 from .filter_server import build_server
 from .version import __version__
 
@@ -21,6 +20,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+error_console = Console(stderr=True)
 
 
 def _version_callback(value: bool) -> None:
@@ -58,7 +58,10 @@ def run(
     stdio_args: Optional[List[str]] = typer.Option(
         None,
         "--stdio-arg",
-        help="Additional argument(s) for the stdio command (repeatable). Can be individual args or a quoted string that will be split.",
+        help=(
+            "One literal argument for the stdio command (repeatable). "
+            "Use --stdio-arg=value when the value begins with '-'."
+        ),
     ),
     stdio_env: Optional[List[str]] = typer.Option(
         None,
@@ -111,27 +114,26 @@ def run(
 ) -> None:
     """Run the filter server with the given configuration."""
 
-    overrides = ConfigOverrides(
-        name=name,
-        log_level=log_level.upper() if log_level else None,
-        include_health_tool=True if health else None,
-        show_token_estimates=False if no_token_estimates else None,
-        transport=transport.lower() if transport else None,
-        stdio_command=stdio_command,
-        stdio_args=_parse_stdio_args(stdio_args),
-        stdio_env=_parse_env(stdio_env),
-        http_url=http_url,
-        http_headers=_parse_headers(http_headers),
-        allow_tools=allow_tools,
-        allow_patterns=allow_patterns,
-        deny_patterns=deny_patterns,
-        rename_prefix=rename_prefix,
-    )
-
     try:
+        overrides = ConfigOverrides(
+            name=name,
+            log_level=log_level.upper() if log_level else None,
+            include_health_tool=True if health else None,
+            show_token_estimates=False if no_token_estimates else None,
+            transport=transport.lower() if transport else None,
+            stdio_command=stdio_command,
+            stdio_args=_parse_stdio_args(stdio_args),
+            stdio_env=parse_stdio_env_entries(stdio_env) if stdio_env else None,
+            http_url=http_url,
+            http_headers=_parse_headers(http_headers),
+            allow_tools=allow_tools,
+            allow_patterns=allow_patterns,
+            deny_patterns=deny_patterns,
+            rename_prefix=rename_prefix,
+        )
         config = load_config(overrides=overrides)
     except ConfigError as exc:
-        console.print(f"[red]Configuration error:[/red] {exc}")
+        error_console.print(f"[red]Configuration error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
     _maybe_install_uvloop()
@@ -143,10 +145,10 @@ def run(
     try:
         asyncio.run(_run())
     except ConfigError as exc:
-        console.print(f"[red]Configuration error:[/red] {exc}")
+        error_console.print(f"[red]Configuration error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     except KeyboardInterrupt:
-        console.print("\n[yellow]Shutting down...[/yellow]")
+        error_console.print("\n[yellow]Shutting down...[/yellow]")
 
 
 def _parse_headers(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
@@ -161,32 +163,11 @@ def _parse_headers(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
     return headers
 
 
-def _parse_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
-    """Parse environment variables from KEY=VALUE format."""
-    if not values:
-        return None
-    env_vars: Dict[str, str] = {}
-    for item in values:
-        if "=" not in item:
-            raise ConfigError(f"Environment variable '{item}' must be in KEY=VALUE format.")
-        key, value = item.split("=", 1)
-        env_vars[key.strip()] = value.strip()
-    return env_vars
-
-
 def _parse_stdio_args(values: Optional[List[str]]) -> Optional[List[str]]:
-    """Parse stdio args, splitting quoted strings if needed."""
+    """Preserve each repeatable option value as one upstream argument."""
     if not values:
         return None
-    result: List[str] = []
-    for item in values:
-        # If the item contains spaces, split it using shlex
-        # Otherwise, treat it as a single argument
-        if " " in item or "\t" in item:
-            result.extend(shlex.split(item))
-        else:
-            result.append(item)
-    return result
+    return list(values)
 
 
 def _maybe_install_uvloop() -> None:
