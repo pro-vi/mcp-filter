@@ -1,5 +1,8 @@
 """Package version."""
 
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = version("mcp-filter")
+try:
+    __version__ = version("mcp-filter")
+except PackageNotFoundError:
+    __version__ = "0+unknown"

@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [0.2.0] - 2026-07-09
+## [0.2.0] - 2026-07-10
 
 ### Added
 
@@ -26,8 +26,8 @@ All notable changes to this project are documented in this file.
 
 - Forward only configured environment variables plus the MCP SDK's minimal default
   environment instead of the filter's complete environment.
-- Redact malformed environment values from configuration errors and keep diagnostics
-  off the MCP protocol output stream.
+- Redact malformed environment values from configuration errors and send those errors
+  to stderr instead of the MCP protocol output stream.
 
 ### Contributors
 
