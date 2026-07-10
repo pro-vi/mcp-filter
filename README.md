@@ -226,6 +226,22 @@ This only exposes 3 tools we allowed (**~1.9k tokens** = 91% reduction!):
 }
 ```
 
+**Python MCP servers (uvx)** - wrap a Python package without installing it globally:
+
+```json
+"atlassian": {
+  "command": "mcp-filter",
+  "args": [
+    "run",
+    "-t", "stdio",
+    "--stdio-command", "uvx",
+    "--stdio-arg", "mcp-atlassian",
+    "--stdio-env", "JIRA_URL=https://your-instance.atlassian.net",
+    "-a", "jira_search,jira_get_issue"
+  ]
+}
+```
+
 Adjust auth-tokens/headers to match your environment; the filter never logs or exposes them.
 
 ## Configuration Reference
@@ -234,7 +250,7 @@ Environment variables (prefixed with `MF_`) override CLI flags. See `.env.exampl
 
 - `MF_TRANSPORT` / `-t`: `stdio` (default) or `http`
 - `MF_STDIO_COMMAND` / `MF_STDIO_ARGS`: upstream binary + args
-- `MF_STDIO_ENV` / `--stdio-env`: environment variables for stdio subprocess (`KEY=value;ANOTHER=value` or repeatable `--stdio-env KEY=value`)
+- `MF_STDIO_ENV` / `--stdio-env`: explicit upstream environment (`KEY=value;OTHER=value` or repeatable flags)
 - `MF_HTTP_URL` / `MF_HTTP_HEADERS`: SSE/HTTP endpoint and extra headers (`key=value;Another=Value`)
 - `MF_ALLOW_TOOLS` / `-a`: exact tool names (repeatable, or comma-separated)
 - `MF_ALLOW_PATTERNS`: regex patterns for tool names (repeatable, or comma-separated)
@@ -267,6 +283,7 @@ Environment variables (prefixed with `MF_`) override CLI flags. See `.env.exampl
 - Optional rename prefix avoids tool collisions when multiple filtered proxies run side-by-side.
 - Health payload (when enabled) avoids secrets—only structural metadata is emitted.
 - **Credentials & secrets**: Arguments and headers passed via CLI flags are never logged. For production deployments, prefer environment variables (e.g., `MF_STDIO_ARGS`) to avoid exposing credentials in process lists.
+- Upstream subprocesses receive only environment variables configured through `MF_STDIO_ENV` or `--stdio-env`; the filter does not forward its full environment.
 
 ### Requirements
 

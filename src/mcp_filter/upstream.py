@@ -96,7 +96,12 @@ async def make_upstream(cfg: UpstreamConfig) -> Upstream:
     if cfg.transport == "stdio":
         if not cfg.stdio_command:
             raise ConfigError("stdio transport requires a command to spawn.")
-        client = await _connect_stdio(fastmcp, cfg.stdio_command, cfg.stdio_args, cfg.stdio_env)
+        client = await _connect_stdio(
+            fastmcp,
+            cfg.stdio_command,
+            cfg.stdio_args,
+            cfg.stdio_env,
+        )
     elif cfg.transport == "http":
         if not cfg.http_url:
             raise ConfigError("http transport requires an http_url.")
@@ -107,41 +112,23 @@ async def make_upstream(cfg: UpstreamConfig) -> Upstream:
     return _FastMCPUpstream(client)
 
 
-async def _connect_stdio(fastmcp: Any, command: str, args: Optional[List[str]], env: Optional[Dict[str, str]] = None) -> Any:
+async def _connect_stdio(
+    fastmcp: Any,
+    command: str,
+    args: Optional[List[str]],
+    env: Optional[Dict[str, str]] = None,
+) -> Any:
     args = args or []
 
     # Try modern FastMCP (>= 2.0) with Client + StdioTransport
     try:
         from fastmcp import Client
-        from fastmcp.client import NpxStdioTransport, PythonStdioTransport
+        from fastmcp.client import StdioTransport
 
-        # Detect transport type based on command
-        if command == "npx":
-            # npx @package args -> NpxStdioTransport(package, args)
-            if not args:
-                raise ConfigError("npx transport requires a package name")
-            package = args[0]
-            package_args = args[1:] if len(args) > 1 else []
-            transport = NpxStdioTransport(package=package, args=package_args, env_vars=env)
-        elif command.endswith(".py") or command == "python":
-            # python script.py args -> PythonStdioTransport(script, args)
-            if command == "python" and args:
-                script = args[0]
-                script_args = args[1:] if len(args) > 1 else []
-            else:
-                script = command
-                script_args = args
-            transport = PythonStdioTransport(script_path=script, args=script_args, env=env)
-        else:
-            # Generic command -> try importing generic StdioTransport or NodeStdioTransport
-            from fastmcp.client import StdioTransport
-            # StdioTransport might not accept command directly, let's check NodeStdioTransport
-            try:
-                from fastmcp.client import NodeStdioTransport
-                transport = NodeStdioTransport(command=command, args=args, env=env)
-            except (ImportError, TypeError):
-                # Fallback to generic if available
-                transport = StdioTransport(command=command, args=args, env=env)
+        # The caller already supplies a complete executable and argument vector.
+        # A generic transport preserves that contract for npx, uvx, uv, Python,
+        # and custom runners without guessing the executable's ecosystem.
+        transport = StdioTransport(command=command, args=args, env=env or None)
 
         client = Client(transport)
 
@@ -152,6 +139,10 @@ async def _connect_stdio(fastmcp: Any, command: str, args: Optional[List[str]], 
         return client
     except (ImportError, AttributeError) as e:
         logger.debug(f"Modern FastMCP transport failed: {e}")
+
+    # Legacy FastMCP cannot reliably provide the selective environment contract.
+    if env:
+        raise ConfigError("stdio environment variables require fastmcp 2.0 or newer.")
 
     # Fallback: try legacy patterns
     if hasattr(fastmcp, "connect_stdio"):

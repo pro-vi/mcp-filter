@@ -183,9 +183,9 @@ def _load_from_env(env: Mapping[str, str]) -> Dict[str, Any]:
     stdio_args = env.get("MF_STDIO_ARGS")
     if stdio_args:
         upstream["stdio_args"] = shlex.split(stdio_args)
-    stdio_env_raw = env.get("MF_STDIO_ENV")
-    if stdio_env_raw:
-        upstream["stdio_env"] = _parse_env_vars(stdio_env_raw)
+    stdio_env = env.get("MF_STDIO_ENV")
+    if stdio_env:
+        upstream["stdio_env"] = _parse_stdio_env(stdio_env)
 
     http_url = env.get("MF_HTTP_URL")
     if http_url:
@@ -238,19 +238,21 @@ def _parse_headers(value: str) -> Dict[str, str]:
     return headers
 
 
-def _parse_env_vars(value: str) -> Dict[str, str]:
-    """Parse environment variables from semicolon-separated key=value pairs."""
-    env_vars: Dict[str, str] = {}
+def _parse_stdio_env(value: str) -> Dict[str, str]:
+    env: Dict[str, str] = {}
     for item in value.split(";"):
         if not item.strip():
             continue
         if "=" not in item:
             raise ConfigError(
-                f"Environment variable '{item}' must be in key=value form (separated by ';')."
+                f"Environment variable '{item}' must be in KEY=VALUE form (separated by ';')."
             )
         key, val = item.split("=", 1)
-        env_vars[key.strip()] = val.strip()
-    return env_vars
+        key = key.strip()
+        if not key:
+            raise ConfigError("Environment variable name cannot be empty.")
+        env[key] = val
+    return env
 
 
 def _to_bool(value: str) -> bool:

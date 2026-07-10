@@ -111,24 +111,23 @@ def run(
 ) -> None:
     """Run the filter server with the given configuration."""
 
-    overrides = ConfigOverrides(
-        name=name,
-        log_level=log_level.upper() if log_level else None,
-        include_health_tool=True if health else None,
-        show_token_estimates=False if no_token_estimates else None,
-        transport=transport.lower() if transport else None,
-        stdio_command=stdio_command,
-        stdio_args=_parse_stdio_args(stdio_args),
-        stdio_env=_parse_env(stdio_env),
-        http_url=http_url,
-        http_headers=_parse_headers(http_headers),
-        allow_tools=allow_tools,
-        allow_patterns=allow_patterns,
-        deny_patterns=deny_patterns,
-        rename_prefix=rename_prefix,
-    )
-
     try:
+        overrides = ConfigOverrides(
+            name=name,
+            log_level=log_level.upper() if log_level else None,
+            include_health_tool=True if health else None,
+            show_token_estimates=False if no_token_estimates else None,
+            transport=transport.lower() if transport else None,
+            stdio_command=stdio_command,
+            stdio_args=_parse_stdio_args(stdio_args),
+            stdio_env=_parse_stdio_env(stdio_env),
+            http_url=http_url,
+            http_headers=_parse_headers(http_headers),
+            allow_tools=allow_tools,
+            allow_patterns=allow_patterns,
+            deny_patterns=deny_patterns,
+            rename_prefix=rename_prefix,
+        )
         config = load_config(overrides=overrides)
     except ConfigError as exc:
         console.print(f"[red]Configuration error:[/red] {exc}")
@@ -161,17 +160,19 @@ def _parse_headers(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
     return headers
 
 
-def _parse_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
-    """Parse environment variables from KEY=VALUE format."""
+def _parse_stdio_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
     if not values:
         return None
-    env_vars: Dict[str, str] = {}
+    env: Dict[str, str] = {}
     for item in values:
         if "=" not in item:
             raise ConfigError(f"Environment variable '{item}' must be in KEY=VALUE format.")
         key, value = item.split("=", 1)
-        env_vars[key.strip()] = value.strip()
-    return env_vars
+        key = key.strip()
+        if not key:
+            raise ConfigError("Environment variable name cannot be empty.")
+        env[key] = value
+    return env
 
 
 def _parse_stdio_args(values: Optional[List[str]]) -> Optional[List[str]]:
