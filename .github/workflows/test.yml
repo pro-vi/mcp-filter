@@ -17,10 +17,13 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: "3.11"
-      - name: Install project
+      - name: Install latest dependencies
+        if: matrix.fastmcp-version == 'latest'
         run: uv sync --extra dev
-      - name: Install minimum FastMCP
+      - name: Install minimum supported dependencies
         if: matrix.fastmcp-version != 'latest'
-        run: uv pip install "fastmcp==${{ matrix.fastmcp-version }}"
+        run: |
+          uv venv
+          uv pip install -e '.[dev]' "fastmcp==${{ matrix.fastmcp-version }}"
       - name: Run unit and subprocess E2E tests
-        run: uv run pytest -q
+        run: .venv/bin/python -m pytest -q
