@@ -123,7 +123,7 @@ def run(
             transport=transport.lower() if transport else None,
             stdio_command=stdio_command,
             stdio_args=_parse_stdio_args(stdio_args),
-            stdio_env=_parse_stdio_env(stdio_env),
+            stdio_env=parse_stdio_env_entries(stdio_env) if stdio_env else None,
             http_url=http_url,
             http_headers=_parse_headers(http_headers),
             allow_tools=allow_tools,
@@ -161,12 +161,6 @@ def _parse_headers(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
         key, value = item.split("=", 1)
         headers[key.strip()] = value.strip()
     return headers
-
-
-def _parse_stdio_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
-    if not values:
-        return None
-    return parse_stdio_env_entries(values)
 
 
 def _parse_stdio_args(values: Optional[List[str]]) -> Optional[List[str]]:
