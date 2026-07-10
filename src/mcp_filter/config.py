@@ -49,6 +49,7 @@ class UpstreamConfig(BaseModel):
     transport: Transport = "stdio"
     stdio_command: Optional[str] = None
     stdio_args: List[str] = Field(default_factory=list)
+    stdio_env: Dict[str, str] = Field(default_factory=dict)
     http_url: Optional[AnyUrl] = None
     http_headers: Dict[str, str] = Field(default_factory=dict)
 
@@ -79,6 +80,7 @@ class ConfigOverrides:
     transport: Optional[Transport] = None
     stdio_command: Optional[str] = None
     stdio_args: Optional[List[str]] = None
+    stdio_env: Optional[Dict[str, str]] = None
     http_url: Optional[str] = None
     http_headers: Optional[Dict[str, str]] = None
     allow_tools: Optional[List[str]] = None
@@ -105,6 +107,8 @@ class ConfigOverrides:
             upstream["stdio_command"] = self.stdio_command
         if self.stdio_args is not None:
             upstream["stdio_args"] = self.stdio_args
+        if self.stdio_env is not None:
+            upstream["stdio_env"] = self.stdio_env
         if self.http_url is not None:
             upstream["http_url"] = self.http_url
         if self.http_headers is not None:
@@ -179,6 +183,9 @@ def _load_from_env(env: Mapping[str, str]) -> Dict[str, Any]:
     stdio_args = env.get("MF_STDIO_ARGS")
     if stdio_args:
         upstream["stdio_args"] = shlex.split(stdio_args)
+    stdio_env_raw = env.get("MF_STDIO_ENV")
+    if stdio_env_raw:
+        upstream["stdio_env"] = _parse_env_vars(stdio_env_raw)
 
     http_url = env.get("MF_HTTP_URL")
     if http_url:
@@ -229,6 +236,21 @@ def _parse_headers(value: str) -> Dict[str, str]:
         key, val = item.split("=", 1)
         headers[key.strip()] = val.strip()
     return headers
+
+
+def _parse_env_vars(value: str) -> Dict[str, str]:
+    """Parse environment variables from semicolon-separated key=value pairs."""
+    env_vars: Dict[str, str] = {}
+    for item in value.split(";"):
+        if not item.strip():
+            continue
+        if "=" not in item:
+            raise ConfigError(
+                f"Environment variable '{item}' must be in key=value form (separated by ';')."
+            )
+        key, val = item.split("=", 1)
+        env_vars[key.strip()] = val.strip()
+    return env_vars
 
 
 def _to_bool(value: str) -> bool:

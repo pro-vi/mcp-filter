@@ -60,6 +60,11 @@ def run(
         "--stdio-arg",
         help="Additional argument(s) for the stdio command (repeatable). Can be individual args or a quoted string that will be split.",
     ),
+    stdio_env: Optional[List[str]] = typer.Option(
+        None,
+        "--stdio-env",
+        help="Environment variable for the stdio command as KEY=VALUE (repeatable).",
+    ),
     http_url: Optional[str] = typer.Option(
         None, "--http-url", help="HTTP/SSE endpoint for the upstream MCP server."
     ),
@@ -114,6 +119,7 @@ def run(
         transport=transport.lower() if transport else None,
         stdio_command=stdio_command,
         stdio_args=_parse_stdio_args(stdio_args),
+        stdio_env=_parse_env(stdio_env),
         http_url=http_url,
         http_headers=_parse_headers(http_headers),
         allow_tools=allow_tools,
@@ -153,6 +159,19 @@ def _parse_headers(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
         key, value = item.split("=", 1)
         headers[key.strip()] = value.strip()
     return headers
+
+
+def _parse_env(values: Optional[List[str]]) -> Optional[Dict[str, str]]:
+    """Parse environment variables from KEY=VALUE format."""
+    if not values:
+        return None
+    env_vars: Dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            raise ConfigError(f"Environment variable '{item}' must be in KEY=VALUE format.")
+        key, value = item.split("=", 1)
+        env_vars[key.strip()] = value.strip()
+    return env_vars
 
 
 def _parse_stdio_args(values: Optional[List[str]]) -> Optional[List[str]]:

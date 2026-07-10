@@ -234,6 +234,7 @@ Environment variables (prefixed with `MF_`) override CLI flags. See `.env.exampl
 
 - `MF_TRANSPORT` / `-t`: `stdio` (default) or `http`
 - `MF_STDIO_COMMAND` / `MF_STDIO_ARGS`: upstream binary + args
+- `MF_STDIO_ENV` / `--stdio-env`: environment variables for stdio subprocess (`KEY=value;ANOTHER=value` or repeatable `--stdio-env KEY=value`)
 - `MF_HTTP_URL` / `MF_HTTP_HEADERS`: SSE/HTTP endpoint and extra headers (`key=value;Another=Value`)
 - `MF_ALLOW_TOOLS` / `-a`: exact tool names (repeatable, or comma-separated)
 - `MF_ALLOW_PATTERNS`: regex patterns for tool names (repeatable, or comma-separated)

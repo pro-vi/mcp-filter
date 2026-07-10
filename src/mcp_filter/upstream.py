@@ -96,7 +96,7 @@ async def make_upstream(cfg: UpstreamConfig) -> Upstream:
     if cfg.transport == "stdio":
         if not cfg.stdio_command:
             raise ConfigError("stdio transport requires a command to spawn.")
-        client = await _connect_stdio(fastmcp, cfg.stdio_command, cfg.stdio_args)
+        client = await _connect_stdio(fastmcp, cfg.stdio_command, cfg.stdio_args, cfg.stdio_env)
     elif cfg.transport == "http":
         if not cfg.http_url:
             raise ConfigError("http transport requires an http_url.")
@@ -107,7 +107,7 @@ async def make_upstream(cfg: UpstreamConfig) -> Upstream:
     return _FastMCPUpstream(client)
 
 
-async def _connect_stdio(fastmcp: Any, command: str, args: Optional[List[str]]) -> Any:
+async def _connect_stdio(fastmcp: Any, command: str, args: Optional[List[str]], env: Optional[Dict[str, str]] = None) -> Any:
     args = args or []
 
     # Try modern FastMCP (>= 2.0) with Client + StdioTransport
@@ -122,7 +122,7 @@ async def _connect_stdio(fastmcp: Any, command: str, args: Optional[List[str]]) 
                 raise ConfigError("npx transport requires a package name")
             package = args[0]
             package_args = args[1:] if len(args) > 1 else []
-            transport = NpxStdioTransport(package=package, args=package_args)
+            transport = NpxStdioTransport(package=package, args=package_args, env_vars=env)
         elif command.endswith(".py") or command == "python":
             # python script.py args -> PythonStdioTransport(script, args)
             if command == "python" and args:
@@ -131,17 +131,17 @@ async def _connect_stdio(fastmcp: Any, command: str, args: Optional[List[str]]) 
             else:
                 script = command
                 script_args = args
-            transport = PythonStdioTransport(script_path=script, args=script_args)
+            transport = PythonStdioTransport(script_path=script, args=script_args, env=env)
         else:
             # Generic command -> try importing generic StdioTransport or NodeStdioTransport
             from fastmcp.client import StdioTransport
             # StdioTransport might not accept command directly, let's check NodeStdioTransport
             try:
                 from fastmcp.client import NodeStdioTransport
-                transport = NodeStdioTransport(command=command, args=args)
+                transport = NodeStdioTransport(command=command, args=args, env=env)
             except (ImportError, TypeError):
                 # Fallback to generic if available
-                transport = StdioTransport(command=command, args=args)
+                transport = StdioTransport(command=command, args=args, env=env)
 
         client = Client(transport)
 
